@@ -1,0 +1,171 @@
+---
+title: "final_project"
+author: "Alexander Chang and Harrison Naftelberg"
+date: "3/22/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+setwd("~/Desktop/FinalProject")
+library(sf)
+library(ggplot2)
+
+```
+
+Trying to read in Boston crime data and fix it up to be graphed 
+```{r}
+library(ggmap)
+
+crime_data <- read.csv("boston_crime.csv")
+crime_data <- subset(crime_data, Location!="(0.00000000, 0.00000000)")
+
+boston_map <-get_map(location =c(left = -71.15, bottom = 42.3, right = -70.985746, top = 42.4))
+
+g1 <- ggmap(boston_map) + stat_density2d(aes(x = as.numeric(Long), y = as.numeric(Lat), fill = ..level.., alpha = 0.05),size = 0.01, bins = 20, data = crime_data, geom = "polygon") + scale_fill_viridis_c() + ggtitle("Where the Most Crimes Happen in Boston") + theme_void()
+g1
+```
+
+
+Trying to read in Boston parcel data to graph city 
+```{r results = 'hide}
+# Reading in tax parcel and city boundary data
+parcel_data <- st_read(dsn = ".", layer = "Parcels_2016_Data_Full")
+city_boundary <- st_read(dsn =  ".", layer = "City_of_Boston_Boundary")
+
+```
+
+Mapping schools
+```{r}
+# Vector of college property owner names, used to filter data 
+college_names <- c("FRANKLIN FOUNDATION", "FRANKLIN FOUNDATION INC", "FRANKLIN FOUNDATION THE", 
+                   "BOSTON CONSERVATRY MUSIC", "BERKLEE COLLEGE OF MUSIC INC", "BERKLEE COLLEGE OF MUSIC", 
+                   "BOSTON ARCHITECTURAL COLLEGE", 
+                   "EMERSON COLLEGE", "EMMANUEL COLLEGE TRUSTEES", 
+                   "FISHER SCHOOL THE", "FISHER SCHOOL", "FISHER JUNIOR COLLEGE", 
+                   "SIMMONS COLLEGE", "SIMMONS FEMALE COLLEGE", 
+                   "TRUSTEES OF SUFFOLK", 
+                   "WENTWORTH INSTITUTE",
+                   "BOSTON UNIVERSITY TRSTS", "BOSTON UNIVERSITY TRSTS OF", 
+                   "TRUSTEES OF BOSTON UNIVERSIT", "BOSTON UNIVERSITY TRS OF",
+                   "TRUSTEES OF BOSTON", "BOSTON UNIVERSITY",
+                   "NORTHEASTERN UNIVERSITY", "NORTHEASTERN UNIV MASS",
+                   "HARVARD COLLEGE")
+
+parcel_data_filter <- subset(parcel_data, OWNER %in% college_names | PID %in% c(1303400000, 0202170000, 0202165000, 0401841000)) # Parcel IDS are for buildings owned by commonwealth of mass, for schools such as UMass, Bunker Hill CC
+
+
+ggplot() + geom_sf(data = city_boundary, color = "grey", size = 0.2) + geom_sf(fill = "red", data = parcel_data_filter, color = "red") + theme_void() + ggtitle("Locations of Colleges in Boston")
+
+```
+
+Some statistical analysis of property in Boston
+```{r}
+# Boston tax rate for non-residential buildings
+boston_commercial_tax <- 24.92
+
+# Property value of schools buildings in Boston
+all_property_value <- sum(parcel_data_filter$AV_TOTAL)
+all_property_value
+
+# Simple math to find amount of money city loses in taxes 
+missed_value <- all_property_value / 1000 * 24.92
+missed_value
+
+```
+
+Doing some more analysis on populations of schools in Boston
+```{r}
+
+boston_schools <- read.csv("Colleges_and_Universities.csv")
+sum(boston_schools$NumStudent)
+
+```
+
+
+```{r}
+# Fake data
+big_belly <- read.csv("big_belly_boston.csv")
+
+library(tidyverse)
+
+# Getting coordinates into two columns and in plottable format
+big_belly <- big_belly %>% 
+  # Remove parentheses
+  mutate(Location = gsub("\\(|\\)", "", Location)) %>% 
+  # Separate into two columns
+  separate(Location, into=c("lat","lon"), sep=", ") 
+
+# Keeps the columns lat lon so that we can plot unique big belly locations
+keep_columns <- c("lat", "lon")
+# Filters out duplicate big bellies
+distinct_big_belly <- distinct(big_belly[keep_columns])
+
+# Filters out to just get the bellies when they are full
+full_belly <- subset(big_belly, fullness == "RED")
+# Filter out to just get the bellies when they are emptied
+empty_belly <- subset(big_belly, fullness == "GREEN")
+
+# Determining the most used big bellies
+most_used_full <- sort(table(full_belly["description"]), decreasing=TRUE)[1:10]
+most_used_empty <- sort(table(empty_belly["description"]), decreasing=TRUE)[1:10]
+
+# Plotting the belly locations 
+belly_locations <- ggmap(boston_map) + geom_point(data=distinct_big_belly, color="blue",size = .0001,aes(x=as.numeric(lon), y=as.numeric(lat))) + ggtitle("Locations of Big Belly Trash Cans") + theme_void()
+belly_locations
+
+# Plotting a density map of bellies when they get filled 
+full_belly_map <- ggmap(boston_map) + stat_density2d(aes(x = as.numeric(lon), y = as.numeric(lat), fill = ..level.., alpha = 0.05),size = 0.01, bins = 20, data = full_belly, geom = "polygon") + scale_fill_viridis_c() + ggtitle("Where the Trash Cans Get Filled the Most") + theme_void()
+full_belly_map
+
+# Plotting a density map of bellies when they get emptied 
+empty_belly_map <- ggmap(boston_map) + stat_density2d(aes(x = as.numeric(lon), y = as.numeric(lat), fill = ..level.., alpha = 0.05),size = 0.01, bins = 20, data = empty_belly, geom = "polygon") + scale_fill_viridis_c() + ggtitle("Where the Trash Cans Get Emptied the Most") + theme_void()
+empty_belly_map
+```
+
+```{r}
+library(tidyverse)
+library(broom)
+census_tract <- st_read(dsn = ".", layer = "Census_2010_Tracts")
+tract_data <- read.csv("ACS_1216_TRACT.csv")
+
+# Renaming column of data frame so dataframes can merge
+tract_data <- tract_data %>% 
+  rename(GEOID10 = CT_ID_10)
+# Merging data frames
+census_tract_data <- merge(census_tract, tract_data,by="GEOID10")
+
+# Graphing income density, and overlaying colleges onto the image in one version
+ggplot() + 
+  geom_polygon() + 
+  geom_sf(data = census_tract_data, color = "grey", size = 0.2, aes(fill=MedHouseIncome)) + 
+  scale_fill_gradient2(midpoint=100000,low = "red",high="green",mid="white") +
+  labs(fill = "Income in Dollars") + 
+  coord_sf(xlim = c(-71.2, -70.95), ylim = c(42.23, 42.41)) +
+  theme_void() +
+  ggtitle("Income in Different Census Tracts")
+# With colleges
+ggplot() + 
+  geom_polygon() + 
+  geom_sf(data = census_tract_data, color = "grey", size = 0.2, aes(fill=MedHouseIncome)) + 
+  scale_fill_gradient2(midpoint=100000,low = "red",high="green",mid="white") +
+  labs(fill = "Income in Dollars") + 
+  geom_sf(fill = "blue", data = parcel_data_filter, color = "blue") +
+  coord_sf(xlim = c(-71.2, -70.95), ylim = c(42.23, 42.41)) +
+  theme_void() +
+  ggtitle("Income in Different Census Tracts")
+# Year a house was built
+ggplot() + 
+  geom_polygon() + 
+  geom_sf(data = census_tract_data, color = "grey", size = 0.2, aes(fill=MedYrBuiltRaw)) + 
+  scale_fill_gradient2(midpoint=1970,low = "red",high="blue",mid="white") +
+  labs(fill = "Year Built") + 
+  geom_sf(fill = "yellow", data = parcel_data_filter, color = "yellow") +
+  coord_sf(xlim = c(-71.2, -70.95), ylim = c(42.23, 42.41)) +
+  theme_void() +
+  ggtitle("Median Years Houses Were Built") 
+```
